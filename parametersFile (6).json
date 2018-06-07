@@ -1,0 +1,51 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "adminUsername": {
+      "value": "renderserveradmin"
+    },
+    "adminPassword": {
+      "value": null
+    },
+    "location": {
+      "value": "[resourceGroup().location]"
+    },
+    "VMScaleSetName": {
+      "value": "render-vmss-01"
+    },
+    "Capacity": {
+      "value": 5
+    },
+    "VMSize": {
+      "value": "Standard_DS1_V2"
+    },
+    "customImageResourceGroup": {
+      "value": "cloud-render-primary-rg"
+    },
+    "customImageName": {
+      "value": "ubuntu-image-001"
+    },
+    "vnetAddressSpace": {
+      "value": "10.128.0.0/16"
+    },
+    "renderClientsSubnet": {
+      "value": "10.128.0.0/20"
+    },
+    "fastCacheSubnet": {
+      "value": "10.128.16.0/24"
+    },
+    "managementSubnet": {
+      "value": "10.128.17.0/24"
+    },
+    "sharedStorageSubnet": {
+      "value": "10.128.18.0/24"
+    },
+    "GatewaySubnet": {
+      "value": "10.128.19.0/27"
+    },
+    "remoteAllowedCIDR": {
+      "value": "0.0.0.0/0"
+    }
+  }
+}

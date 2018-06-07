@@ -1,0 +1,402 @@
+{
+    "$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "adminUsername": {
+            "defaultValue": "renderserveradmin",
+            "type": "String",
+            "metadata": {
+                "description": "Enter the admin username for the Jump hosts and render clients"
+            }
+        },
+        "adminPassword": {
+            "type": "SecureString",
+            "metadata": {
+                "description": "Enter the admin password for the Jump host and render clients"
+            }
+        },
+        "location": {
+            "defaultValue": "[resourceGroup().location]",
+            "type": "String",
+            "metadata": {
+                "description": "Location for all resources."
+            }
+        },
+        "VMScaleSetName": {
+            "defaultValue": "render-vmss-01",
+            "type": "String",
+            "metadata": {
+                "description": "Specify the name of the Vm Scale Set"
+            }
+        },
+        "Capacity": {
+            "defaultValue": 5,
+            "type": "Int",
+            "metadata": {
+                "description": "Specify the number of render clients to create using VM Scale Sets. Max of 300"
+            }
+        },
+        "VMSize": {
+            "defaultValue": "Standard_DS1_V2",
+            "type": "String",
+            "metadata": {
+                "description": "Specify the VM Size for render clients."
+            }
+        },
+        "customImageResourceGroup": {
+            "defaultValue": "cloud-render-primary-rg",
+            "type": "String",
+            "metadata": {
+                "description": "Resource Group of the Custom OS image to use for VMs."
+            }
+        },
+        "customImageName": {
+            "defaultValue": "ubuntu-image-001",
+            "type": "String",
+            "metadata": {
+                "description": "Custom OS image to use for VMs."
+            }
+        },
+        "vnetAddressSpace": {
+            "defaultValue": "10.128.0.0/16",
+            "minLength": 7,
+            "type": "String",
+            "metadata": {
+                "description": "Enter the VNet address space for the deployment.Enter in 0.0.0.0/0 format"
+            }
+        },
+        "renderClientsSubnet": {
+            "defaultValue": "10.128.0.0/20",
+            "minLength": 7,
+            "type": "String",
+            "metadata": {
+                "description": "Enter the subnet address space for Render Clients.Enter in 0.0.0.0/0 format"
+            }
+        },
+        "fastCacheSubnet": {
+            "defaultValue": "10.128.16.0/24",
+            "minLength": 7,
+            "type": "String",
+            "metadata": {
+                "description": "Enter the subnet address space for Fast Cache Services.Enter in 0.0.0.0/0 format"
+            }
+        },
+        "managementSubnet": {
+            "defaultValue": "10.128.17.0/24",
+            "minLength": 7,
+            "type": "String",
+            "metadata": {
+                "description": "Enter the subnet address space for Management Hosts.Enter in 0.0.0.0/0 format"
+            }
+        },
+        "sharedStorageSubnet": {
+            "defaultValue": "10.128.18.0/24",
+            "minLength": 7,
+            "type": "String",
+            "metadata": {
+                "description": "Enter the subnet address space for shared storage servers.Enter in 0.0.0.0/0 format"
+            }
+        },
+        "GatewaySubnet": {
+            "defaultValue": "10.128.19.0/27",
+            "minLength": 7,
+            "type": "String",
+            "metadata": {
+                "description": "Enter the subnet address space for hosting VPN/ExpressRoute Gateways.Enter in 0.0.0.0/0 format"
+            }
+        },
+        "remoteAllowedCIDR": {
+            "defaultValue": "0.0.0.0/0",
+            "minLength": 7,
+            "type": "String",
+            "metadata": {
+                "description": "Enter Public IP CIDR to allow for accessing the deployment from Management Subnet.Enter in 0.0.0.0/0 format"
+            }
+        }
+    },
+    "variables": {
+        "vmSize": "Standard_DS2_v2",
+        "virtualNetworkName": "cloud-render-vnet",
+        "renderClientsSubnetName": "renderClients-subnet",
+        "fastCacheSubnetName": "fastCache-subnet",
+        "managementSubnetName": "management-subnet",
+        "sharedStorageSubnetName": "sharedStorage-subnet",
+        "renderClientsNSGName": "renderClients-nsg",
+        "fastCacheNSGName": "fastCache-nsg",
+        "managementNSGName": "management-nsg",
+        "sharedStorageNSGName": "sharedStorage-nsg",
+        "jumpVmName": "renderJump-vm",
+        "jumpIPAddressName": "[concat(variables('jumpVmName'), '-PIP')]",
+        "vnetId": "[resourceId('Microsoft.Network/virtualNetworks', variables('virtualNetworkName'))]",
+        "subnetRef": "[concat(variables('vnetId'), '/subnets/', variables('managementSubnetName'))]",
+        "subnetRefrender": "[concat(variables('vnetId'), '/subnets/', variables('renderClientsSubnetName'))]",
+        "networkInterfaceName": "[concat(variables('jumpVmName'), '-nic')]",
+        "extensionName": "CustomScript",
+        "CustomImageRef": "[resourceId(parameters('customImageResourceGroup'), 'Microsoft.Compute/images', parameters('customImageName'))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Network/networkSecurityGroups",
+            "name": "[variables('managementNSGName')]",
+            "apiVersion": "2016-03-30",
+            "location": "[parameters('location')]",
+            "properties": {
+                "securityRules": [
+                    {
+                        "name": "RDP-allow",
+                        "properties": {
+                            "protocol": "Tcp",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "3389",
+                            "sourceAddressPrefix": "[parameters('remoteAllowedCIDR')]",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 110,
+                            "direction": "Inbound"
+                        }
+                    },
+                    {
+                        "name": "SSH-allow",
+                        "properties": {
+                            "protocol": "Tcp",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "22",
+                            "sourceAddressPrefix": "[parameters('remoteAllowedCIDR')]",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 120,
+                            "direction": "Inbound"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Network/networkSecurityGroups",
+            "name": "[variables('renderClientsNSGName')]",
+            "apiVersion": "2016-03-30",
+            "location": "[parameters('location')]",
+            "properties": {
+                "securityRules": []
+            }
+        },
+        {
+            "type": "Microsoft.Network/networkSecurityGroups",
+            "name": "[variables('fastCacheNSGName')]",
+            "apiVersion": "2016-03-30",
+            "location": "[parameters('location')]",
+            "properties": {
+                "securityRules": []
+            }
+        },
+        {
+            "type": "Microsoft.Network/networkSecurityGroups",
+            "name": "[variables('sharedStorageNSGName')]",
+            "apiVersion": "2016-03-30",
+            "location": "[parameters('location')]",
+            "properties": {
+                "securityRules": []
+            }
+        },
+        {
+            "type": "Microsoft.Network/publicIPAddresses",
+            "name": "[concat(variables('jumpVmName'), '-PIP')]",
+            "apiVersion": "2016-03-30",
+            "location": "[parameters('location')]",
+            "properties": {
+                "publicIPAllocationMethod": "Static",
+                "idleTimeoutInMinutes": 4
+            }
+        },
+        {
+            "type": "Microsoft.Network/virtualNetworks",
+            "name": "[variables('virtualNetworkName')]",
+            "apiVersion": "2016-03-30",
+            "location": "[parameters('location')]",
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": [
+                        "[parameters('vnetAddressSpace')]"
+                    ]
+                },
+                "subnets": [
+                    {
+                        "name": "[variables('managementSubnetName')]",
+                        "properties": {
+                            "addressPrefix": "[parameters('managementSubnet')]",
+                            "networkSecurityGroup": {
+                                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('managementNSGName'))]"
+                            }
+                        }
+                    },
+                    {
+                        "name": "[variables('renderClientsSubnetName')]",
+                        "properties": {
+                            "addressPrefix": "[parameters('renderClientsSubnet')]",
+                            "networkSecurityGroup": {
+                                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('renderClientsNSGName'))]"
+                            }
+                        }
+                    },
+                    {
+                        "name": "[variables('fastCacheSubnetName')]",
+                        "properties": {
+                            "addressPrefix": "[parameters('fastCacheSubnet')]",
+                            "networkSecurityGroup": {
+                                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('fastCacheNSGName'))]"
+                            }
+                        }
+                    },
+                    {
+                        "name": "[variables('sharedStorageSubnetName')]",
+                        "properties": {
+                            "addressPrefix": "[parameters('sharedStorageSubnet')]",
+                            "networkSecurityGroup": {
+                                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('sharedStorageNSGName'))]"
+                            }
+                        }
+                    },
+                    {
+                        "name": "GatewaySubnet",
+                        "properties": {
+                            "addressPrefix": "[parameters('GatewaySubnet')]"
+                        }
+                    }
+                ]
+            },
+            "dependsOn": [
+                "[concat('Microsoft.Network/networkSecurityGroups/', variables('managementNSGName'))]",
+                "[concat('Microsoft.Network/networkSecurityGroups/', variables('renderClientsNSGName'))]",
+                "[concat('Microsoft.Network/networkSecurityGroups/', variables('fastCacheNSGName'))]",
+                "[concat('Microsoft.Network/networkSecurityGroups/', variables('sharedStorageNSGName'))]"
+            ]
+        },
+        {
+            "type": "Microsoft.Compute/virtualMachines",
+            "name": "[variables('jumpVmName')]",
+            "apiVersion": "2017-03-30",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "osProfile": {
+                    "computerName": "[variables('jumpVmName')]",
+                    "adminUsername": "[parameters('adminUsername')]",
+                    "adminPassword": "[parameters('adminPassword')]"
+                },
+                "hardwareProfile": {
+                    "vmSize": "[variables('vmSize')]"
+                },
+                "storageProfile": {
+                    "imageReference": {
+                        "id": "[variables('CustomImageRef')]"
+                    },
+                    "osDisk": {
+                        "createOption": "fromImage",
+                        "managedDisk": {
+                            "storageAccountType": "Premium_LRS"
+                        }
+                    }
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces', variables('networkInterfaceName'))]"
+                        }
+                    ]
+                }
+            },
+            "dependsOn": [
+                "[concat('Microsoft.Network/networkInterfaces/', variables('networkInterfaceName'))]"
+            ]
+        },
+        {
+            "type": "Microsoft.Network/networkInterfaces",
+            "name": "[variables('networkInterfaceName')]",
+            "apiVersion": "2016-09-01",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "ipconfig1",
+                        "properties": {
+                            "subnet": {
+                                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('virtualNetworkName'), variables('managementSubnetName'))]"
+                            },
+                            "privateIPAllocationMethod": "Dynamic",
+                            "publicIPAddress": {
+                                "id": "[resourceId('Microsoft.Network/publicIPAddresses',variables('jumpIPAddressName'))]"
+                            }
+                        }
+                    }
+                ]
+            },
+            "dependsOn": [
+                "[concat('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]"
+            ]
+        },
+        {
+            "type": "Microsoft.Compute/virtualMachineScaleSets",
+            "sku": {
+                "name": "[parameters('VMSize')]",
+                "capacity": "[parameters('Capacity')]"
+            },
+            "name": "[parameters('VMScaleSetName')]",
+            "apiVersion": "2017-10-30-preview",
+            "location": "[resourceGroup().location]",
+            "properties": {
+                "singlePlacementGroup": false,
+                "upgradePolicy": {
+                    "mode": "Manual"
+                },
+                "virtualMachineProfile": {
+                    "storageProfile": {
+                        "imageReference": {
+                            "id": "[variables('CustomImageRef')]"
+                        }
+                    },
+                    "osProfile": {
+                        "computerNamePrefix": "[parameters('VMScaleSetName')]",
+                        "adminUsername": "[parameters('adminUsername')]",
+                        "adminPassword": "[parameters('adminPassword')]"
+                    },
+                    "networkProfile": {
+                        "networkInterfaceConfigurations": [
+                            {
+                                "name": "rendernic",
+                                "properties": {
+                                    "primary": "true",
+                                    "ipConfigurations": [
+                                        {
+                                            "name": "renderIpConfig",
+                                            "properties": {
+                                                "subnet": {
+                                                    "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('virtualNetworkName'), variables('renderClientsSubnetName'))]"
+                                                }
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                }
+            },
+            "dependsOn": [
+                "[concat('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]"
+            ]
+        }
+    ],
+    "outputs": {
+        "adminUsername": {
+            "type": "String",
+            "value": "[parameters('adminUsername')]"
+        },
+        "adminHostPublicIP": {
+            "type": "String",
+            "value": "[reference(variables('jumpIPAddressName')).ipAddress]"
+        },
+        "VMScaleSetName": {
+            "type": "String",
+            "value": "[parameters('VMScaleSetName')]"
+        }
+    }
+}
